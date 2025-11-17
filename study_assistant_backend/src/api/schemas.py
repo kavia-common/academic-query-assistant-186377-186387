@@ -30,13 +30,11 @@ class ChatRequest(BaseModel):
     @field_validator("question")
     @classmethod
     def question_not_empty_and_informative(cls, v: str) -> str:
+        """Only ensure non-empty string; allow low-information inputs for heuristic handling."""
         if not isinstance(v, str) or not v.strip():
             raise ValueError("question must be a non-empty string")
-        # Basic check to avoid low-information inputs; endpoints can tailor messages.
-        text = v.strip()
-        if len(text) < 3:
-            raise ValueError("question is too short; please provide more details")
-        return text
+        # Do not enforce minimum length here; main._validate_question() will handle clarity/length.
+        return v.strip()
 
 
 # PUBLIC_INTERFACE

@@ -208,8 +208,8 @@ def chat(
     try:
         answer_text = client.chat(messages=messages, model=cfg.openai_model)
     except Exception as exc:
-        # Translate upstream errors to 502 Bad Gateway
-        # Ensure we do not return 201 on error, even if session was auto-created.
+        # Translate upstream errors to 502 Bad Gateway and ensure no 201 is leaked.
+        # We intentionally do not touch response.status_code here; FastAPI will use 502 from HTTPException.
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -218,7 +218,8 @@ def chat(
     # Store assistant answer
     store.append_message(session_id=session_id, role="assistant", content=answer_text)
 
-    # Choose status code: 201 if a new session was created during this request
+    # Choose status code: 201 if a new session was created during this request.
+    # Set it immediately before returning on the success path only.
     if created:
         response.status_code = status.HTTP_201_CREATED
 
