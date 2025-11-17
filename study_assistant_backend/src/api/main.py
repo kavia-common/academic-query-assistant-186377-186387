@@ -10,7 +10,8 @@ from pydantic import ValidationError
 from .config import get_settings
 from .deps import get_session_store
 from .schemas import ChatRequest, ChatResponse, HistoryResponse, Message
-from .services.openai_client import ChatMessage, get_ai_client
+from .services import openai_client as openai_client_module
+from .services.openai_client import ChatMessage
 from .services.session_store import InMemorySessionStore
 
 # Initialize FastAPI with metadata and tags for OpenAPI
@@ -205,7 +206,7 @@ def chat(
         messages.insert(0, {"role": "system", "content": f"Context: {req.context}".strip()})
 
     # Get AI client (real or mock)
-    client = get_ai_client()
+    client = openai_client_module.get_ai_client()
     cfg = get_settings()
     try:
         answer_text = client.chat(messages=messages, model=cfg.openai_model)
