@@ -168,6 +168,8 @@ def chat(
     """
     # Ensure / auto-create session id
     session_id, created = _ensure_session_id(x_session_id)
+    # Default to 200 OK at start; only set 201 on the success path below.
+    response.status_code = status.HTTP_200_OK
     if created:
         response.headers["X-Session-Id"] = session_id
 
@@ -209,7 +211,8 @@ def chat(
         answer_text = client.chat(messages=messages, model=cfg.openai_model)
     except Exception as exc:
         # Translate upstream errors to 502 Bad Gateway and ensure no 201 is leaked.
-        # We intentionally do not touch response.status_code here; FastAPI will use 502 from HTTPException.
+        # Explicitly set the response status to 502 to avoid any lingering status codes.
+        response.status_code = status.HTTP_502_BAD_GATEWAY
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -256,6 +259,8 @@ def get_history(
         HistoryResponse containing the session_id and array of messages.
     """
     session_id, created = _ensure_session_id(x_session_id)
+    # Default to 200 OK at start; only set 201 on the success path below.
+    response.status_code = status.HTTP_200_OK
     if created:
         response.headers["X-Session-Id"] = session_id
         response.status_code = status.HTTP_201_CREATED
