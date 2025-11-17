@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Utility: ensure session id, possibly generating one if not provided
 def _ensure_session_id(header_session_id: Optional[str]) -> Tuple[str, bool]:
     """
     Ensure we have a session id; generate one if header missing/blank.
@@ -47,6 +46,25 @@ def _ensure_session_id(header_session_id: Optional[str]) -> Tuple[str, bool]:
         return header_session_id.strip(), False
     return str(uuid.uuid4()), True
 
+def _sanitize_val_error_detail(detail: Any) -> Any:
+    """
+    Sanitize ValidationError details to ensure JSON-serializable payloads.
+
+    - If detail is a list[dict], ensure each dict only contains JSON-safe values.
+    - Specifically, stringify any Exception instances under 'ctx' or any nested value.
+    """
+    def _safe(val: Any) -> Any:
+        # Convert Exception instances to string
+        if isinstance(val, Exception):
+            return str(val)
+        # Recursively sanitize dicts/lists
+        if isinstance(val, dict):
+            return {k: _safe(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_safe(v) for v in val]
+        return val
+
+    return _safe(detail)
 
 # PUBLIC_INTERFACE
 @app.get("/", tags=["health"], summary="Health Check")
@@ -57,7 +75,6 @@ def health_check():
         JSON with message 'Healthy' to indicate service availability.
     """
     return {"message": "Healthy"}
-
 
 # PUBLIC_INTERFACE
 @app.get(
@@ -77,7 +94,6 @@ def create_session() -> dict:
     """
     sid = str(uuid.uuid4())
     return {"session_id": sid}
-
 
 def _validate_question(text: str) -> Optional[str]:
     """
@@ -100,7 +116,6 @@ def _validate_question(text: str) -> Optional[str]:
         return "question appears unclear; please include alphanumeric characters"
     return None
 
-
 def _history_to_messages(history: List[dict]) -> List[ChatMessage]:
     """Convert stored messages to AI client messages."""
     msgs: List[ChatMessage] = []
@@ -111,7 +126,6 @@ def _history_to_messages(history: List[dict]) -> List[ChatMessage]:
             continue
         msgs.append({"role": role, "content": content})
     return msgs
-
 
 # PUBLIC_INTERFACE
 @app.post(
@@ -165,8 +179,9 @@ def chat(
     try:
         req = ChatRequest.model_validate(data)
     except ValidationError as ve:
-        # Return the pydantic error detail
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ve.errors())
+        # Sanitize detail to ensure JSON-serializable, particularly ctx values
+        safe_detail = _sanitize_val_error_detail(ve.errors())
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=safe_detail)
 
     # Additional heuristic validation for question
     err = _validate_question(req.question)
@@ -194,6 +209,7 @@ def chat(
         answer_text = client.chat(messages=messages, model=cfg.openai_model)
     except Exception as exc:
         # Translate upstream errors to 502 Bad Gateway
+        # Ensure we do not return 201 on error, even if session was auto-created.
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -207,7 +223,6 @@ def chat(
         response.status_code = status.HTTP_201_CREATED
 
     return ChatResponse(session_id=session_id, answer=answer_text)
-
 
 # PUBLIC_INTERFACE
 @app.get(
